@@ -191,7 +191,7 @@
   input,select,textarea,button{
     font-family:inherit;
   }
-  input[type="text"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="url"],select,textarea{
+  input[type="text"],input[type="password"],input[type="email"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="url"],select,textarea{
     width:100%;
     border:1px solid var(--line);
     background:rgba(255,255,255,.88);
@@ -726,7 +726,7 @@
         <button class="btn ghost" id="changeLoveQuote">换一句</button>
       </div>
       <div class="subtle" style="margin-top:10px">
-       虽然不是本大王写的，但是是我想说的。
+        每天会根据日期自动更新一句，也可以手动换一句。
       </div>
     </div>
 
@@ -1094,6 +1094,25 @@
     <div class="hr"></div>
 
     <div class="card" style="margin:0 0 14px">
+      <h3>联机同步</h3>
+      <div class="row">
+        <div class="w50">
+          <input type="email" id="cloudEmail" placeholder="Firebase 登录邮箱" autocomplete="username" />
+        </div>
+        <div class="w50">
+          <input type="password" id="cloudPassword" placeholder="Firebase 登录密码" autocomplete="current-password" />
+        </div>
+        <div class="row">
+          <button class="btn" id="cloudLogin">登录并同步</button>
+          <button class="btn ghost" id="cloudPull">从云端读取</button>
+          <button class="btn ghost" id="cloudPush">上传本机数据</button>
+          <button class="btn danger" id="cloudLogout">退出登录</button>
+        </div>
+      </div>
+      <div class="subtle" style="margin-top:10px" id="cloudStatus">当前未登录。登录后，你和她会同步同一个云端工作台。</div>
+    </div>
+
+    <div class="card" style="margin:0 0 14px">
       <h3>背景设置</h3>
       <div class="row">
         <div class="w50">
@@ -1126,8 +1145,8 @@
     <div class="card" style="margin:0">
       <h3>使用说明</h3>
       <ul class="subtle" style="line-height:1.9">
-        <li>所有数据保存在浏览器 localStorage 中。</li>
-        <li>离线版图表全部用原生 Canvas / SVG 实现。</li>
+        <li>登录 Firebase 后，数据会同步到云端；未登录时仍保存在浏览器 localStorage 中。</li>
+        <li>图表全部用原生 Canvas / SVG 实现；联机同步使用 Firebase REST API。</li>
         <li>“自媒体爆款推荐”使用内置离线灵感推荐池，不联网抓取平台数据。</li>
         <li>英语单词书为可扩展示例版，如果你要，我可以下一版给你补成 500 词完整版。</li>
       </ul>
@@ -1137,10 +1156,22 @@
 
 <script>
 /* ===========================
-   乖宝Dana的一天 · 单文件离线版
+   乖宝Dana的一天 · 单文件联机同步版
    =========================== */
 
-const APP_KEY = "dana-workbench-v2-love-blank";
+const APP_KEY = "dana-workbench-v3-cloud";
+const CLOUD_SESSION_KEY = "dana-workbench-v3-cloud-session";
+const FIREBASE_API_KEY = "AIzaSyD6TnWMnGFajnmLOzif2jHOIdBYYrST7bo";
+const FIREBASE_PROJECT_ID = "dana-day";
+const CLOUD_DOC_ID = "dana-day";
+const FIREBASE_AUTH_BASE = "https://identitytoolkit.googleapis.com/v1";
+const FIREBASE_TOKEN_BASE = "https://securetoken.googleapis.com/v1";
+const FIRESTORE_DOC_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/workbenches/${CLOUD_DOC_ID}`;
+let CLOUD_READY = false;
+let CLOUD_LOADING = false;
+let CLOUD_SAVE_TIMER = null;
+let CLOUD_POLL_TIMER = null;
+let CLOUD_LAST_SAVED_TEXT = "";
 const CATS_ACCOUNT = ["餐饮","交通","购物","娱乐","住房","教育","工资","理财","医疗","社交","旅行","其他"];
 const PAGE_META = [
   {id:"daily", icon:"🗓️", name:"每日计划", desc:"请务必在长期计划里加上小涂（づ￣3￣）づ╭❤️～"},
@@ -1272,6 +1303,7 @@ function fmtDate(str){
 }
 function saveState(){
   localStorage.setItem(APP_KEY, JSON.stringify(STATE));
+  scheduleCloudSave();
 }
 function loadState(){
   const raw = localStorage.getItem(APP_KEY);
@@ -1279,6 +1311,215 @@ function loadState(){
     try{return JSON.parse(raw)}catch(e){}
   }
   return getInitialState();
+}
+function getCloudSession(){
+  const raw = localStorage.getItem(CLOUD_SESSION_KEY);
+  if(!raw) return null;
+  try{return JSON.parse(raw)}catch(e){return null;}
+}
+function setCloudSession(session){
+  localStorage.setItem(CLOUD_SESSION_KEY, JSON.stringify(session));
+}
+function clearCloudSession(){
+  localStorage.removeItem(CLOUD_SESSION_KEY);
+}
+function cloudLoggedEmail(){
+  const s = getCloudSession();
+  return s && s.email ? s.email : "";
+}
+function sanitizeStateForCloud(){
+  const copy = JSON.parse(JSON.stringify(STATE || getInitialState()));
+  copy.settings = copy.settings || {bgImage:"", bgMask:0.62};
+  copy.settings.bgImage = "";
+  return copy;
+}
+function normalizeStateShape(obj){
+  const base = getInitialState();
+  const out = Object.assign(base, obj || {});
+  out.settings = Object.assign({bgImage:"", bgMask:0.62}, obj?.settings || {});
+  out.love = Object.assign({favorites:[], custom:[], offset:0}, obj?.love || {});
+  out.daily = Object.assign({todayTasks:[],weekPlans:[],longGoals:[]}, obj?.daily || {});
+  out.reading = Object.assign({goal:12, books:[], wishlist:[], recoIndex:0}, obj?.reading || {});
+  out.english = Object.assign({favorites:[], learned:[], testHistory:[], gameHistory:[]}, obj?.english || {});
+  out.media = Object.assign({topics:[]}, obj?.media || {});
+  out.inspiration = Object.assign({notes:[], materials:[]}, obj?.inspiration || {});
+  out.accounts = Array.isArray(out.accounts) ? out.accounts : [];
+  out.sports = Array.isArray(out.sports) ? out.sports : [];
+  out.moods = Array.isArray(out.moods) ? out.moods : [];
+  out.travel = Array.isArray(out.travel) ? out.travel : [];
+  out.podcasts = Array.isArray(out.podcasts) ? out.podcasts : [];
+  out.habits = Array.isArray(out.habits) ? out.habits : [];
+  return out;
+}
+function applyCloudState(cloudState){
+  const localBg = STATE?.settings?.bgImage || "";
+  const normalized = normalizeStateShape(cloudState);
+  if(localBg && !normalized.settings.bgImage) normalized.settings.bgImage = localBg;
+  STATE = normalized;
+  localStorage.setItem(APP_KEY, JSON.stringify(STATE));
+  applyBackground();
+  renderAll();
+}
+function renderCloudStatus(text){
+  const el = $("cloudStatus");
+  if(!el) return;
+  const email = cloudLoggedEmail();
+  const status = text || (email ? `已登录：${email}。数据会自动同步到 Firebase。` : "当前未登录。登录后，你和她会同步同一个云端工作台。");
+  el.textContent = status;
+}
+async function loginCloud(email,password){
+  try{
+    const res = await fetch(`${FIREBASE_AUTH_BASE}/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({email,password,returnSecureToken:true})
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error?.message || "登录失败");
+    const session = {
+      email:data.email,
+      localId:data.localId,
+      idToken:data.idToken,
+      refreshToken:data.refreshToken,
+      expiresAt:Date.now() + (Number(data.expiresIn || 3600) - 60) * 1000
+    };
+    setCloudSession(session);
+    CLOUD_READY = true;
+    await loadCloudState(true);
+    startCloudPolling();
+    renderCloudStatus(`已登录：${data.email}。已同步云端数据。`);
+    alert("登录成功，已同步云端数据");
+  }catch(err){
+    console.error(err);
+    renderCloudStatus("登录失败：" + err.message);
+    alert("登录失败：" + err.message);
+  }
+}
+async function refreshCloudToken(session){
+  const body = new URLSearchParams();
+  body.set("grant_type","refresh_token");
+  body.set("refresh_token",session.refreshToken);
+  const res = await fetch(`${FIREBASE_TOKEN_BASE}/token?key=${FIREBASE_API_KEY}`,{
+    method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body
+  });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error?.message || "刷新登录状态失败");
+  const next = {
+    email:session.email,
+    localId:data.user_id || session.localId,
+    idToken:data.id_token,
+    refreshToken:data.refresh_token || session.refreshToken,
+    expiresAt:Date.now() + (Number(data.expires_in || 3600) - 60) * 1000
+  };
+  setCloudSession(next);
+  return next;
+}
+async function ensureCloudToken(){
+  let session = getCloudSession();
+  if(!session || !session.idToken) throw new Error("请先登录");
+  if(Date.now() > (session.expiresAt || 0)) session = await refreshCloudToken(session);
+  return session.idToken;
+}
+async function firestoreGetDoc(){
+  const token = await ensureCloudToken();
+  const res = await fetch(FIRESTORE_DOC_URL,{headers:{Authorization:`Bearer ${token}`}});
+  if(res.status === 404) return null;
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error?.message || "读取云端失败");
+  return data;
+}
+async function firestoreSaveDoc(force=false){
+  if(CLOUD_LOADING) return;
+  const session = getCloudSession();
+  if(!session || !session.idToken) return;
+  try{
+    const cloudState = sanitizeStateForCloud();
+    const text = JSON.stringify(cloudState);
+    if(!force && text === CLOUD_LAST_SAVED_TEXT) return;
+    const token = await ensureCloudToken();
+    const body = {
+      fields:{
+        stateJson:{stringValue:text},
+        updatedAt:{timestampValue:new Date().toISOString()},
+        updatedBy:{stringValue:cloudLoggedEmail() || "unknown"}
+      }
+    };
+    const res = await fetch(FIRESTORE_DOC_URL,{
+      method:"PATCH",
+      headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},
+      body:JSON.stringify(body)
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error?.message || "保存云端失败");
+    CLOUD_LAST_SAVED_TEXT = text;
+    renderCloudStatus(`已同步到云端：${new Date().toLocaleTimeString()}`);
+  }catch(err){
+    console.error(err);
+    renderCloudStatus("云端保存失败：" + err.message);
+  }
+}
+function scheduleCloudSave(){
+  if(!CLOUD_READY || CLOUD_LOADING || !getCloudSession()) return;
+  clearTimeout(CLOUD_SAVE_TIMER);
+  CLOUD_SAVE_TIMER = setTimeout(()=>firestoreSaveDoc(false), 700);
+}
+async function loadCloudState(createIfMissing=false){
+  try{
+    CLOUD_LOADING = true;
+    const doc = await firestoreGetDoc();
+    if(doc && doc.fields?.stateJson?.stringValue){
+      const cloudState = JSON.parse(doc.fields.stateJson.stringValue);
+      CLOUD_LAST_SAVED_TEXT = JSON.stringify(sanitizeStateForCloudFrom(cloudState));
+      applyCloudState(cloudState);
+      renderCloudStatus(`已从云端读取：${new Date().toLocaleTimeString()}`);
+    }else if(createIfMissing){
+      CLOUD_LOADING = false;
+      await firestoreSaveDoc(true);
+      renderCloudStatus("云端还没有数据，已上传本机当前数据。");
+      return;
+    }else{
+      renderCloudStatus("云端暂无数据。");
+    }
+  }catch(err){
+    console.error(err);
+    renderCloudStatus("云端读取失败：" + err.message);
+    alert("云端读取失败：" + err.message);
+  }finally{
+    CLOUD_LOADING = false;
+  }
+}
+function sanitizeStateForCloudFrom(obj){
+  const old = STATE;
+  STATE = normalizeStateShape(obj);
+  const clean = sanitizeStateForCloud();
+  STATE = old;
+  return clean;
+}
+async function logoutCloud(){
+  clearCloudSession();
+  CLOUD_READY = false;
+  if(CLOUD_POLL_TIMER) clearInterval(CLOUD_POLL_TIMER);
+  renderCloudStatus("已退出登录。当前只会保存到本机浏览器。");
+  alert("已退出登录");
+}
+function startCloudPolling(){
+  if(CLOUD_POLL_TIMER) clearInterval(CLOUD_POLL_TIMER);
+  CLOUD_POLL_TIMER = setInterval(async()=>{
+    if(!CLOUD_READY || !getCloudSession() || CLOUD_LOADING) return;
+    try{ await loadCloudState(false); }catch(e){ console.error(e); }
+  }, 15000);
+}
+function tryRestoreCloudLogin(){
+  const session = getCloudSession();
+  if(session && session.refreshToken){
+    CLOUD_READY = true;
+    renderCloudStatus(`已恢复登录：${session.email}，正在读取云端...`);
+    loadCloudState(false).then(startCloudPolling).catch(err=>renderCloudStatus("恢复云端登录失败："+err.message));
+  }else{
+    renderCloudStatus();
+  }
 }
 function getInitialState(){
   return {
@@ -1523,6 +1764,27 @@ function bindSettings(){
     if(e.target.id==="settingsMask") $("settingsMask").style.display="none";
   });
 
+  $("cloudLogin").onclick = async ()=>{
+    const email = $("cloudEmail").value.trim();
+    const password = $("cloudPassword").value;
+    if(!email || !password) return alert("请输入邮箱和密码");
+    await loginCloud(email,password);
+  };
+  $("cloudLogout").onclick = async ()=>{
+    await logoutCloud();
+  };
+  $("cloudPull").onclick = async ()=>{
+    if(!getCloudSession()) return alert("请先登录");
+    await loadCloudState(false);
+  };
+  $("cloudPush").onclick = async ()=>{
+    if(!getCloudSession()) return alert("请先登录");
+    if(!confirm("确定用本机当前数据覆盖云端吗？")) return;
+    await firestoreSaveDoc(true);
+    alert("已上传本机数据到云端");
+  };
+  renderCloudStatus();
+
   $("bgUpload").addEventListener("change", e=>{
     const file = e.target.files[0];
     if(!file) return;
@@ -1584,13 +1846,13 @@ function bindSettings(){
     alert("示例数据已清理");
   };
   $("resetAll").onclick = ()=>{
-    if(!confirm("确定清空全部数据吗？此操作不可撤销。")) return;
+    if(!confirm("确定清空本机全部数据吗？如果已登录，清空结果也会同步到云端。")) return;
     localStorage.removeItem(APP_KEY);
     STATE = getInitialState();
-    
+    saveState();
     applyBackground();
     renderAll();
-    alert("已重置");
+    alert("已清空全部数据");
   };
 }
 
@@ -2685,6 +2947,7 @@ function init(){
   setDefaults();
   applyBackground();
   renderAll();
+  tryRestoreCloudLogin();
 }
 init();
 </script>
