@@ -388,6 +388,34 @@
     border:1px solid rgba(210,190,110,.18);
     padding:14px;
   }
+
+  .photo-grid{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-top:10px;
+  }
+  .photo-grid img{
+    width:74px;
+    height:74px;
+    object-fit:cover;
+    border-radius:14px;
+    border:1px solid var(--line);
+    background:#fff;
+  }
+  .risk-dot{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:24px;
+    height:24px;
+    border-radius:999px;
+    background:#fff0f4;
+    color:#c75f73;
+    font-weight:700;
+    margin-right:6px;
+  }
+
   .habit-card{
     border-radius:18px;
     padding:14px;
@@ -707,6 +735,64 @@
               <canvas id="moodLine" width="520" height="320"></canvas>
               <div class="hr"></div>
               <div class="list" id="moodList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- 痘痘记录 -->
+    <section class="page" id="page-acne">
+      <div class="grid">
+        <div class="card">
+          <h3>痘痘记录</h3>
+          <div class="subtle" style="margin-bottom:12px">每天记录周期、饮食、睡眠、用药和照片，方便回看痘痘变化。</div>
+          <div class="row">
+            <div class="w25"><input type="date" id="acneDate" /></div>
+            <div class="w25"><input type="number" id="acneCycleDay" min="1" max="60" placeholder="月经周期第几天" /></div>
+            <div class="w25">
+              <select id="acneNewCount">
+                <option value="0">新发痘：0个</option>
+                <option value="1">新发痘：1个</option>
+                <option value="2">新发痘：2个</option>
+                <option value="3+">新发痘：3个以上</option>
+              </select>
+            </div>
+            <div class="w25"><select id="acneChinNodule"><option>下巴硬结：无</option><option>下巴硬结：有</option></select></div>
+            <div class="w25"><select id="acneMilk"><option>牛奶：无</option><option>牛奶：少</option><option>牛奶：多</option></select></div>
+            <div class="w25"><select id="acneSugar"><option>高糖：无</option><option>高糖：有</option></select></div>
+            <div class="w25"><select id="acneSpicy"><option>辛辣：无</option><option>辛辣：有</option></select></div>
+            <div class="w25"><select id="acneSleep"><option>&lt;6h</option><option selected>6–7h</option><option>&gt;7h</option></select></div>
+            <div class="w25"><select id="acneSqueeze"><option>是否挤痘：否</option><option>是否挤痘：是</option></select></div>
+            <div class="w25"><select id="acneAdapalene"><option>阿达帕林：否</option><option>阿达帕林：是</option></select></div>
+            <div class="w25"><select id="acneBPO"><option>BPO：否</option><option>BPO：是</option></select></div>
+            <div class="w25"><input type="file" id="acnePhotos" accept="image/*" multiple /></div>
+            <div style="flex:1 1 100%"><textarea id="acneNote" placeholder="备注：位置、红肿、疼痛、护肤变化等，可不填"></textarea></div>
+            <div style="flex:1 1 100%"><button class="btn" id="addAcneRecord">+ 保存痘痘记录</button></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <div class="stat"><span class="subtle">本月记录天数</span><b id="acneMonthDays">0</b></div>
+            <div class="stat"><span class="subtle">本月新发痘</span><b id="acneMonthNew">0</b></div>
+            <div class="stat"><span class="subtle">本月挤痘天数</span><b id="acneMonthSqueeze">0</b></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="two-col">
+            <div>
+              <h3>本月痘痘热力图</h3>
+              <div class="legend">
+                <span class="pill">白：0个</span><span class="pill">浅绿：1个</span><span class="pill">中绿：2个</span><span class="pill">深绿：3个以上</span>
+              </div>
+              <div class="heat-grid" id="acneHeatGrid"></div>
+            </div>
+            <div>
+              <h3>最近记录</h3>
+              <div class="list" id="acneList"></div>
             </div>
           </div>
         </div>
@@ -1178,6 +1264,7 @@ const PAGE_META = [
   {id:"account", icon:"💰", name:"我的记账", desc:"没钱请拨打17360605245"},
   {id:"sport", icon:"🏃", name:"运动打卡", desc:"不许太瘦，没有肉肉不好捏！"},
   {id:"mood", icon:"🌈", name:"心情日记", desc:"这个不会回答的树洞真的有男朋友好用吗？"},
+  {id:"acne", icon:"🌼", name:"痘痘记录", desc:"记录周期、饮食、睡眠和用药，慢慢找到皮肤状态的小规律。"},
   {id:"love", icon:"💌", name:"这是秘密，不许打开", desc:"坏了，我的心事被你发现(灬ꈍ ꈍ灬)"},
   {id:"reading", icon:"📚", name:"读书收获", desc:"你真会用上这个模块吗？我表示怀疑QwQ"},
   {id:"travel", icon:"✈️", name:"旅行计划", desc:"带上男朋友翻山越岭，这点很重要"},
@@ -1331,6 +1418,10 @@ function sanitizeStateForCloud(){
   const copy = JSON.parse(JSON.stringify(STATE || getInitialState()));
   copy.settings = copy.settings || {bgImage:"", bgMask:0.62};
   copy.settings.bgImage = "";
+  // 痘痘照片只保存在本机，避免云端文档过大导致同步失败。
+  if(copy.acne && Array.isArray(copy.acne.records)){
+    copy.acne.records = copy.acne.records.map(r => Object.assign({}, r, {photos:[]}));
+  }
   return copy;
 }
 function normalizeStateShape(obj){
@@ -1338,6 +1429,8 @@ function normalizeStateShape(obj){
   const out = Object.assign(base, obj || {});
   out.settings = Object.assign({bgImage:"", bgMask:0.62}, obj?.settings || {});
   out.love = Object.assign({favorites:[], custom:[], offset:0}, obj?.love || {});
+  out.acne = Object.assign({records:[]}, obj?.acne || {});
+  if(!Array.isArray(out.acne.records)) out.acne.records = [];
   out.daily = Object.assign({todayTasks:[],weekPlans:[],longGoals:[]}, obj?.daily || {});
   out.reading = Object.assign({goal:12, books:[], wishlist:[], recoIndex:0}, obj?.reading || {});
   out.english = Object.assign({favorites:[], learned:[], testHistory:[], gameHistory:[]}, obj?.english || {});
@@ -1353,8 +1446,22 @@ function normalizeStateShape(obj){
 }
 function applyCloudState(cloudState){
   const localBg = STATE?.settings?.bgImage || "";
+  const localAcnePhotos = {};
+  (STATE?.acne?.records || []).forEach(r=>{
+    if(r.id && Array.isArray(r.photos) && r.photos.length){
+      localAcnePhotos[r.id] = r.photos;
+    }
+  });
   const normalized = normalizeStateShape(cloudState);
   if(localBg && !normalized.settings.bgImage) normalized.settings.bgImage = localBg;
+  if(normalized.acne && Array.isArray(normalized.acne.records)){
+    normalized.acne.records = normalized.acne.records.map(r=>{
+      if((!Array.isArray(r.photos) || r.photos.length===0) && localAcnePhotos[r.id]){
+        r.photos = localAcnePhotos[r.id];
+      }
+      return r;
+    });
+  }
   STATE = normalized;
   localStorage.setItem(APP_KEY, JSON.stringify(STATE));
   applyBackground();
@@ -1529,6 +1636,7 @@ function getInitialState(){
     accounts:[],
     sports:[],
     moods:[],
+    acne:{records:[]},
     reading:{goal:12, books:[], wishlist:[], recoIndex:0},
     travel:[],
     english:{favorites:[], learned:[], testHistory:[], gameHistory:[]},
@@ -1831,6 +1939,7 @@ function bindSettings(){
     ["accounts","sports","moods","travel","podcasts"].forEach(k=>{
       STATE[k] = (STATE[k]||[]).filter(x=>!x.demo);
     });
+    if(STATE.acne && Array.isArray(STATE.acne.records)) STATE.acne.records = STATE.acne.records.filter(x=>!x.demo);
     STATE.daily.todayTasks = STATE.daily.todayTasks.filter(x=>!x.demo);
     STATE.daily.weekPlans = STATE.daily.weekPlans.filter(x=>!x.demo);
     STATE.daily.longGoals = STATE.daily.longGoals.filter(x=>!x.demo);
@@ -2110,6 +2219,157 @@ function renderMoods(){
   `).join("") : `<div class="empty">还没有心情记录</div>`;
 }
 function deleteMood(id){ removeById(STATE.moods,id); saveState(); renderMoods(); }
+
+
+/* ---------- 痘痘记录 ---------- */
+function ensureAcneState(){
+  if(!STATE.acne) STATE.acne = {records:[]};
+  if(!Array.isArray(STATE.acne.records)) STATE.acne.records = [];
+}
+function acneCountScore(v){
+  const s = String(v || "0");
+  if(s.includes("3")) return 3;
+  const n = parseInt(s,10);
+  return isNaN(n) ? 0 : n;
+}
+function acnePickValue(id){
+  const el = $(id);
+  if(!el) return "";
+  const txt = el.value || "";
+  return txt.includes("：") ? txt.split("：").pop() : txt;
+}
+function compressAcnePhoto(file){
+  return new Promise(resolve=>{
+    const reader = new FileReader();
+    reader.onerror = ()=>resolve("");
+    reader.onload = ()=>{
+      const raw = reader.result;
+      const img = new Image();
+      img.onerror = ()=>resolve(raw);
+      img.onload = ()=>{
+        const maxSide = 900;
+        let w = img.width, h = img.height;
+        const scale = Math.min(1, maxSide / Math.max(w,h));
+        w = Math.round(w * scale); h = Math.round(h * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img,0,0,w,h);
+        try{
+          resolve(canvas.toDataURL("image/jpeg",0.76));
+        }catch(e){
+          resolve(raw);
+        }
+      };
+      img.src = raw;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function bindAcne(){
+  const btn = $("addAcneRecord");
+  if(!btn) return;
+  btn.onclick = async ()=>{
+    ensureAcneState();
+    const files = $("acnePhotos")?.files ? Array.from($("acnePhotos").files).slice(0,4) : [];
+    btn.disabled = true;
+    btn.textContent = "正在保存照片...";
+    const photos = (await Promise.all(files.map(compressAcnePhoto))).filter(Boolean);
+    STATE.acne.records.push({
+      id:uid(),
+      date:$("acneDate").value || todayStr(),
+      cycleDay:$("acneCycleDay").value.trim(),
+      newCount:acnePickValue("acneNewCount"),
+      chinNodule:acnePickValue("acneChinNodule"),
+      milk:acnePickValue("acneMilk"),
+      sugar:acnePickValue("acneSugar"),
+      spicy:acnePickValue("acneSpicy"),
+      sleep:$("acneSleep").value,
+      squeeze:acnePickValue("acneSqueeze"),
+      adapalene:acnePickValue("acneAdapalene"),
+      bpo:acnePickValue("acneBPO"),
+      note:$("acneNote").value.trim(),
+      photos
+    });
+    $("acneCycleDay").value="";
+    $("acneNewCount").value="0";
+    $("acneChinNodule").value="下巴硬结：无";
+    $("acneMilk").value="牛奶：无";
+    $("acneSugar").value="高糖：无";
+    $("acneSpicy").value="辛辣：无";
+    $("acneSleep").value="6–7h";
+    $("acneSqueeze").value="是否挤痘：否";
+    $("acneAdapalene").value="阿达帕林：否";
+    $("acneBPO").value="BPO：否";
+    $("acneNote").value="";
+    $("acnePhotos").value="";
+    btn.disabled = false;
+    btn.textContent = "+ 保存痘痘记录";
+    saveState(); renderAcne();
+  };
+}
+function renderAcne(){
+  ensureAcneState();
+  const records = STATE.acne.records || [];
+  const monthPrefix = thisMonthStr();
+  const monthRecords = records.filter(x => (x.date || "").startsWith(monthPrefix));
+  const uniqueDays = unique(monthRecords.map(x=>x.date));
+  const monthNew = sum(monthRecords.map(x=>acneCountScore(x.newCount)));
+  const squeezeDays = unique(monthRecords.filter(x=>x.squeeze==="是").map(x=>x.date)).length;
+  if($("acneMonthDays")) $("acneMonthDays").textContent = uniqueDays.length;
+  if($("acneMonthNew")) $("acneMonthNew").textContent = monthNew;
+  if($("acneMonthSqueeze")) $("acneMonthSqueeze").textContent = squeezeDays;
+
+  const dailyMap = {};
+  monthRecords.forEach(x=>{
+    if(!dailyMap[x.date]) dailyMap[x.date] = 0;
+    dailyMap[x.date] += acneCountScore(x.newCount);
+  });
+  const m = getMonthDays();
+  let heat = ["一","二","三","四","五","六","日"].map(x=>`<div class="pill" style="justify-content:center">${x}</div>`).join("");
+  for(let i=0;i<m.lead;i++) heat += `<div class="heat-cell" style="visibility:hidden"></div>`;
+  for(let d=1; d<=m.last; d++){
+    const ds = `${m.year}-${String(m.month).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const n = dailyMap[ds] || 0;
+    const klass = n<=0 ? "k0" : n===1 ? "k1" : n===2 ? "k2" : "k4";
+    heat += `<div class="heat-cell ${klass}" title="${ds} 新发痘 ${n} 个">${d}</div>`;
+  }
+  if($("acneHeatGrid")) $("acneHeatGrid").innerHTML = heat;
+
+  const list = sortByDateDesc(records).slice(0,20);
+  if(!$("acneList")) return;
+  $("acneList").innerHTML = list.length ? list.map(x=>{
+    const factors = [
+      `周期第${escapeHtml(x.cycleDay || "-")}天`,
+      `新发${escapeHtml(x.newCount || "0")}个`,
+      `硬结${escapeHtml(x.chinNodule || "无")}`,
+      `牛奶${escapeHtml(x.milk || "无")}`,
+      `高糖${escapeHtml(x.sugar || "无")}`,
+      `辛辣${escapeHtml(x.spicy || "无")}`,
+      `睡眠${escapeHtml(x.sleep || "-")}`,
+      `挤痘${escapeHtml(x.squeeze || "否")}`,
+      `阿达帕林${escapeHtml(x.adapalene || "否")}`,
+      `BPO${escapeHtml(x.bpo || "否")}`
+    ];
+    const photos = (x.photos || []).map(src=>`<img src="${src}" alt="痘痘照片" loading="lazy" />`).join("");
+    return `<div class="item">
+      <div class="item-head">
+        <div style="flex:1">
+          <div class="task-title"><span class="risk-dot">${acneCountScore(x.newCount)}</span>${fmtDate(x.date)} · 痘痘记录</div>
+          <div class="subtle">${factors.join(" · ")}</div>
+          ${x.note ? `<div style="margin-top:8px">${escapeHtml(x.note)}</div>` : ""}
+          ${photos ? `<div class="photo-grid">${photos}</div>` : ""}
+        </div>
+        <button class="icon-btn" onclick="deleteAcne('${x.id}')">🗑️</button>
+      </div>
+    </div>`;
+  }).join("") : `<div class="empty">还没有痘痘记录</div>`;
+}
+function deleteAcne(id){
+  ensureAcneState();
+  removeById(STATE.acne.records,id);
+  saveState(); renderAcne();
+}
 
 /* ---------- 5.读书 ---------- */
 /* ---------- 每日情话 ---------- */
@@ -2910,6 +3170,7 @@ function renderAll(){
   renderAccounts();
   renderSports();
   renderMoods();
+  renderAcne();
   renderLove();
   renderReading();
   renderTravel();
@@ -2925,6 +3186,7 @@ function setDefaults(){
   $("accountDate").value = todayStr();
   $("sportDate").value = todayStr();
   $("moodDate").value = todayStr();
+  if($("acneDate")) $("acneDate").value = todayStr();
   $("podcastDate").value = todayStr();
 }
 function init(){
@@ -2936,6 +3198,7 @@ function init(){
   bindAccounts();
   bindSports();
   bindMoods();
+  bindAcne();
   bindLove();
   bindReading();
   bindTravel();
